@@ -4,25 +4,22 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Initialize FastAPI app
 app = FastAPI()
 
-# --- Load Paths ---
+# --- Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
+MODEL_PATH = os.path.join(BASE_DIR, "Sleep_health.pkl")
 SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
-ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
 
-# --- Load Artifacts ---
+# --- Load ---
 try:
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
-    label_encoder = joblib.load(ENCODER_PATH)
 except Exception as e:
-    raise RuntimeError(f"Error loading model artifacts: {str(e)}")
+    raise RuntimeError(f"Error loading files: {str(e)}")
 
-# --- Pydantic Request Model ---
+# --- Request Model ---
 class Request(BaseModel):
     Age: float
     Sleep_Duration: float
@@ -32,16 +29,15 @@ class Request(BaseModel):
     Heart_Rate: float
     Daily_Steps: float
 
-# --- Health Check ---
+# --- Health ---
 @app.get("/health")
-async def health_check():
+async def health():
     return {"status": "ok"}
 
-# --- Prediction Endpoint ---
+# --- Predict ---
 @app.post("/predict")
 async def predict(request: Request):
     try:
-        # Convert input to numpy array (order MUST match training)
         features = np.array([
             request.Age,
             request.Sleep_Duration,
@@ -52,21 +48,25 @@ async def predict(request: Request):
             request.Daily_Steps
         ]).reshape(1, -1)
 
-        # Scale features
-        scaled_features = scaler.transform(features)
+        scaled = scaler.transform(features)
+        prediction = model.predict(scaled)[0]
 
-        # Predict
-        prediction_encoded = model.predict(scaled_features)
+        # --- Handle both cases ---
+        if isinstance(prediction, (np.integer, int)):
+            # ⚠️ If encoded, map manually (FIX THIS BASED ON YOUR DATA)
+            mapping = {
+                0: "No Disorder",
+                1: "Insomnia",
+                2: "Sleep Apnea"
+            }
+            prediction = mapping.get(prediction, str(prediction))
 
-        # Decode label
-        prediction_label = label_encoder.inverse_transform(prediction_encoded)[0]
-
-        return {"prediction": prediction_label}
+        return {"prediction": prediction}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Run Server ---
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
